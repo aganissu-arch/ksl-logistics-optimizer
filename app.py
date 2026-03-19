@@ -175,7 +175,7 @@ for i, y_name in enumerate(yards_list):
             for h in h_labels:
                 cx1, cx2 = st.columns(2)
                 with cx1: f_v = st.number_input(f"อ้อยสด {h}", 0.0, 2000.0, 0.0, key=f"f_{y_name}_{h}")
-                with cx2: b_v = st.number_input(f"อ้อยไฟไหม้ {h}", 0.0, 2000.0, 0.0, key=f"b_{y_name}_{h}")
+                with cx2: b_v = st.number_input(f"ไฟไหม้ {h}", 0.0, 2000.0, 0.0, key=f"b_{y_name}_{h}")
                 plan_f.append(f_v); plan_b.append(b_v)
             loc_params[y_name] = {"fresh": plan_f, "burnt": plan_b, "dist": dist_h, "init_f": s_init_f, "init_b": s_init_b}
 

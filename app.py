@@ -73,7 +73,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.markdown('<div class="main-header"><h1>🚜 KSL Logistics Simulation</h1><p>ระบบจำลองและวางแผนการขนส่งอ้อยอัจฉริยะรูปแบบ Hub and Spoke</p></div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header"><h1>🚜 KSL Logistics Simulation</h1><p>ระบบจำลองและวางแผนการขนส่งอ้อยอัจฉริยะรูปแบบ Hub and Spoke ภายใต้โครงการเสริมสร้างความสามารถการดำเนินธุรกิจให้กับผู้ประกอบการภาคอุตสาหกรรมด้วยการบริหารจัดการโลจิสติกส์ที่มีประสิทธิภาพอย่างยั่งยืน ประจำปีงบประมาณ 2569 กองโลจิสติกส์ กรมส่งเสริมอุตสาหกรรม</p></div>', unsafe_allow_html=True)
 
 # --- CONFIG & LISTS ---
 yards_list = ["ศูนย์โนนสัง(Hub)", "ศูนย์โนนสว่าง", "ศูนย์ศรีบุญเรือง", "ศูนย์ข้องโป้", "ศูนย์ทรายทอง"]

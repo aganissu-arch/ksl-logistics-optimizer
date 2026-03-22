@@ -155,49 +155,64 @@ start_min = 0 # 24H Simulation starts at 00:00
 # ==========================================
 # 3. MAIN UI - YARD CONFIG
 # ==========================================
+st.divider()
+st.subheader("🛠️ ตั้งค่าศูนย์และ Hub (Yard Configuration)")
 loc_params, fleet_config = {}, {}
-cols = st.columns(len(yards_list))
+yard_tabs = st.tabs([f"📍 {y}" for y in yards_list])
 
-for i, y_name in enumerate(yards_list):
-    with cols[i]:
-        st.subheader(y_name)
-        if y_name == "ศูนย์โนนสัง":
-            st.caption("🚛 วิ่งตรงเข้าโรงงาน (Direct)")
-            
+for i, (y_name, tab) in enumerate(zip(yards_list, yard_tabs)):
+    with tab:
         # Per-Yard Operating Hours
-        yt1, yt2 = st.columns(2)
-        if y_name == hub_name:
-            st.info("🕒 ทำงาน 24 ชม.")
-            y_start = time(0, 0)
-            y_end = time(23, 59)
-            start_m_val, end_m_val = 0, 1440
-        else:
-            y_start = yt1.time_input(f"เริ่ม ({y_name})", time(6, 0), key=f"yst_{y_name}")
-            y_end = yt2.time_input(f"ปิด ({y_name})", time(18, 0), key=f"yed_{y_name}")
-            start_m_val = y_start.hour * 60 + y_start.minute
-            end_m_val = y_end.hour * 60 + y_end.minute
+        c_gen1, c_gen2, c_gen3 = st.columns([1, 1, 1.5])
         
-        if y_name == hub_name:
-            dist_h = 0.0
-        elif y_name == "ศูนย์โนนสัง":
-            dist_h = st.number_input(f"ระยะทางไปโรงงาน (กม.)", 0.0, 200.0, default_distances[y_name], key=f"d_{y_name}")
-        else:
-            dist_h = st.number_input(f"ระยะทางจากลานไป Hub", 0.0, 200.0, default_distances[y_name], key=f"d_{y_name}")
-            
-        n_t = st.number_input("รถลาก (คัน)", 0, 50, 5 if i==0 else 2, key=f"nty_{y_name}")
-        n_e = st.number_input("หางรวม (ใบ)", 1, 500, 6, key=f"ne_{y_name}")
-        
-        if y_name == hub_name:
-            n_loaders = 0 # Hub has no loaders
-        else:
-            n_loaders = st.number_input("รถคีบ (คัน)", 1, 10, 1, key=f"nl_{y_name}")
-        
-        st.markdown("**หางหนักค้างลาน**")
-        c1, c2 = st.columns(2)
-        with c1: s_init_f = st.number_input("อ้อยสด (ใบ)", 0, 100, 0 if y_name == hub_name else 0, key=f"init_f_{y_name}")
-        with c2: s_init_b = st.number_input("อ้อยไฟไหม้ (ใบ)", 0, 100, 0 if y_name == hub_name else 0, key=f"init_b_{y_name}")
+        with c_gen1:
+            if y_name == hub_name:
+                st.info("🕒 Hub ทำงาน 24 ชม.")
+                y_start = time(0, 0)
+                y_end = time(23, 59)
+                start_m_val, end_m_val = 0, 1440
+            else:
+                y_start = st.time_input(f"เวลาเปิด ({y_name})", time(6, 0), key=f"yst_{y_name}")
+                start_m_val = y_start.hour * 60 + y_start.minute
 
-        with st.expander("🚚 ความเร็ว"):
+        with c_gen2:
+            if y_name != hub_name:
+                y_end = st.time_input(f"เวลาปิด ({y_name})", time(18, 0), key=f"yed_{y_name}")
+                end_m_val = y_end.hour * 60 + y_end.minute
+            else:
+                pass # Hub handled above
+
+        with c_gen3:
+            if y_name == "ศูนย์โนนสัง":
+                st.caption("🚛 วิ่งตรงเข้าโรงงาน (Direct)")
+                dist_h = st.number_input(f"ระยะทางไปโรงงาน (กม.)", 0.0, 200.0, default_distances[y_name], key=f"d_{y_name}")
+            elif y_name == hub_name:
+                dist_h = 0.0
+                st.caption("🏁 จุดศูนย์กลาง (Hub)")
+            else:
+                dist_h = st.number_input(f"ระยะทางจากลานไป Hub", 0.0, 200.0, default_distances[y_name], key=f"d_{y_name}")
+            
+        st.divider()
+        
+        # Resource Configuration
+        c_res1, c_res2, c_res3, c_res4 = st.columns(4)
+        with c_res1: n_t = st.number_input("🚛 รถลาก (คัน)", 0, 50, 5 if i==0 else 2, key=f"nty_{y_name}")
+        with c_res2: n_e = st.number_input("📦 หางรวม (ใบ)", 1, 500, 6, key=f"ne_{y_name}")
+        with c_res3:
+            if y_name == hub_name:
+                n_loaders = 0
+                st.write("🏗️ รถคีบ: -")
+            else:
+                n_loaders = st.number_input("🏗️ รถคีบ (คัน)", 1, 10, 1, key=f"nl_{y_name}")
+        
+        with c_res4:
+            st.markdown(f"**หางหนักค้าง {y_name}**")
+            ci1, ci2 = st.columns(2)
+            s_init_f = ci1.number_input("สด", 0, 100, 0, key=f"init_f_{y_name}")
+            s_init_b = ci2.number_input("ไหม้", 0, 100, 0, key=f"init_b_{y_name}")
+
+        st.write("")
+        with st.expander("🚚 ตั้งค่าความเร็ว (Speed Settings)"):
             s_type, s_p = stochastic_input_ui(f"Speed {y_name}", f"speed_{y_name}", 40)
             fleet_config[y_name] = {"n_t": n_t, "n_e": n_e, "n_loaders": n_loaders, "speed_type": s_type, "speed_params": s_p}
         

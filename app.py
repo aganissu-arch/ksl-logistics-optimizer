@@ -76,10 +76,10 @@ st.markdown("""
 st.markdown('<div class="main-header"><h1>🚜 KSL Logistics Simulation</h1><p>ระบบจำลองและวางแผนการขนส่งอ้อยอัจฉริยะรูปแบบ Hub and Spoke ภายใต้โครงการเสริมสร้างความสามารถการดำเนินธุรกิจให้กับผู้ประกอบการภาคอุตสาหกรรมด้วยการบริหารจัดการโลจิสติกส์ที่มีประสิทธิภาพอย่างยั่งยืน ประจำปีงบประมาณ 2569 กองโลจิสติกส์ กรมส่งเสริมอุตสาหกรรม</p></div>', unsafe_allow_html=True)
 
 # --- CONFIG & LISTS ---
-yards_list = ["ศูนย์โนนสัง(Hub)", "ศูนย์โนนสว่าง", "ศูนย์ศรีบุญเรือง", "ศูนย์ข้องโป้", "ศูนย์ทรายทอง"]
-hub_name = "ศูนย์โนนสัง(Hub)"
+yards_list = ["Hub", "ศูนย์โนนสัง", "ศูนย์โนนสว่าง", "ศูนย์ศรีบุญเรือง", "ศูนย์ข้องโป้", "ศูนย์ทรายทอง"]
+hub_name = "Hub"
 default_distances = {
-    "ศูนย์โนนสัง(Hub)": 0.0, "ศูนย์โนนสว่าง": 58.0, "ศูนย์ศรีบุญเรือง": 37.0, "ศูนย์ข้องโป้": 25.0, "ศูนย์ทรายทอง": 39.0
+    "Hub": 0.0, "ศูนย์โนนสัง": 60.0, "ศูนย์โนนสว่าง": 58.0, "ศูนย์ศรีบุญเรือง": 37.0, "ศูนย์ข้องโป้": 25.0, "ศูนย์ทรายทอง": 39.0
 }
 
 # --- HELPERS ---
@@ -114,11 +114,8 @@ def stochastic_input_ui(label, key_prefix, default_v):
 # ==========================================
 with st.sidebar:
     st.header("⚙️ ตั้งค่าระบบเวลาเปิดปิด")
-    yard_start = st.time_input("ลานเริ่มทำงาน", time(6, 0))
-    yard_end = st.time_input("ลานปิดทำงาน", time(20, 0))
-    fac_start = st.time_input("โรงงานเริ่มเปิดรับเท", time(8, 0))
-    fac_end = st.time_input("โรงงานหยุดเทอ้อย", time(22, 0))
-    
+    st.info("🏭 โรงงานทำงาน 24 ชั่วโมง\n(กำหนดเวลาลานแยกรายศูนย์ที่หน้าจอหลัก)")
+
     st.divider()
     st.header("🏭 ตั้งค่าโรงงาน KSL-NP (ช่องเท)")
     col_f, col_b = st.columns(2)
@@ -146,25 +143,14 @@ with st.sidebar:
     st.subheader("⏱️ ตั้งค่าเวลาในกระบวนการทำงาน")
     unld_dist, unld_p = stochastic_input_ui("เวลาในการเทต่อคันต่อช่อง", "unld", 100)
     hook_dist, hook_p = stochastic_input_ui("เวลาเกี่ยว/ถอดหางต่อคัน", "hook", 30)
-    load_dist, load_p = stochastic_input_ui("เวลาคีบอ้อยต่อหาง", "load", 45)
     
     trailer_cap = st.number_input("ความจุต่อหาง (ตัน)", 10.0, 50.0, 29.0)
     
     num_days = st.number_input("จำนวนวันที่จำลอง (วัน)", 1, 30, 1)
 
-    st.subheader("☕ เวลาพักเบรก (Lunch Break)")
-    brk_y_start, brk_y_end = st.time_input("พักลาน (เริ่ม)", time(12,0)), st.time_input("พักลาน (เสร็จ)", time(13,0))
-    brk_f_start, brk_f_end = st.time_input("พักโรงงาน (เริ่ม)", time(12,0)), st.time_input("พักโรงงาน (เสร็จ)", time(13,0))
-
 # Calculate simulation time
-start_min = yard_start.hour * 60 + yard_start.minute
-fac_open_min = (fac_start.hour * 60 + fac_start.minute) - start_min
-fac_close_min = (fac_end.hour * 60 + fac_end.minute) - start_min
-yard_close_min = (yard_end.hour * 60 + yard_end.minute) - start_min
-sim_duration = (1440 * (num_days - 1)) + max(fac_close_min, yard_close_min)
-
-yb_s, yb_e = (brk_y_start.hour*60 + brk_y_start.minute) - start_min, (brk_y_end.hour*60 + brk_y_end.minute) - start_min
-fb_s, fb_e = (brk_f_start.hour*60 + brk_f_start.minute) - start_min, (brk_f_end.hour*60 + brk_f_end.minute) - start_min
+sim_duration = 1440 * num_days
+start_min = 0 # 24H Simulation starts at 00:00
 
 # ==========================================
 # 3. MAIN UI - YARD CONFIG
@@ -175,10 +161,36 @@ cols = st.columns(len(yards_list))
 for i, y_name in enumerate(yards_list):
     with cols[i]:
         st.subheader(y_name)
-        dist_h = 0.0 if y_name == hub_name else st.number_input(f"ระยะทางจากลานไป Hub", 0.0, 200.0, default_distances[y_name], key=f"d_{y_name}")
+        if y_name == "ศูนย์โนนสัง":
+            st.caption("🚛 วิ่งตรงเข้าโรงงาน (Direct)")
+            
+        # Per-Yard Operating Hours
+        yt1, yt2 = st.columns(2)
+        if y_name == hub_name:
+            st.info("🕒 ทำงาน 24 ชม.")
+            y_start = time(0, 0)
+            y_end = time(23, 59)
+            start_m_val, end_m_val = 0, 1440
+        else:
+            y_start = yt1.time_input(f"เริ่ม ({y_name})", time(6, 0), key=f"yst_{y_name}")
+            y_end = yt2.time_input(f"ปิด ({y_name})", time(18, 0), key=f"yed_{y_name}")
+            start_m_val = y_start.hour * 60 + y_start.minute
+            end_m_val = y_end.hour * 60 + y_end.minute
+        
+        if y_name == hub_name:
+            dist_h = 0.0
+        elif y_name == "ศูนย์โนนสัง":
+            dist_h = st.number_input(f"ระยะทางไปโรงงาน (กม.)", 0.0, 200.0, default_distances[y_name], key=f"d_{y_name}")
+        else:
+            dist_h = st.number_input(f"ระยะทางจากลานไป Hub", 0.0, 200.0, default_distances[y_name], key=f"d_{y_name}")
+            
         n_t = st.number_input("รถลาก (คัน)", 0, 50, 5 if i==0 else 2, key=f"nty_{y_name}")
         n_e = st.number_input("หางรวม (ใบ)", 1, 500, 6, key=f"ne_{y_name}")
-        n_loaders = st.number_input("รถคีบ (คัน)", 1, 10, 1, key=f"nl_{y_name}")
+        
+        if y_name == hub_name:
+            n_loaders = 0 # Hub has no loaders
+        else:
+            n_loaders = st.number_input("รถคีบ (คัน)", 1, 10, 1, key=f"nl_{y_name}")
         
         st.markdown("**หางหนักค้างลาน**")
         c1, c2 = st.columns(2)
@@ -189,79 +201,115 @@ for i, y_name in enumerate(yards_list):
             s_type, s_p = stochastic_input_ui(f"Speed {y_name}", f"speed_{y_name}", 40)
             fleet_config[y_name] = {"n_t": n_t, "n_e": n_e, "n_loaders": n_loaders, "speed_type": s_type, "speed_params": s_p}
         
-        with st.expander("📝 แผนอ้อย"):
-            # --- ส่วนสุ่มแผนอ้อย (Auto-Generate) ---
-            st.markdown("🎲 **สุ่มแผนการเข้าอ้อย (Auto-Generate)**")
-            ag_c1, ag_c2 = st.columns(2)
-            with ag_c1: 
-                gen_total_f = st.number_input("เป้าอ้อยสด/วัน (ตัน)", 0, 10000, 100, key=f"gtf_{y_name}")
-                gen_total_b = st.number_input("เป้าอ้อยไหม้ (ตัน)", 0, 10000, 0, key=f"gtb_{y_name}")
-            with ag_c2:
-                # Default 06:00 - 15:00 (Check bounds)
-                def_s = 0 
-                def_e = min(len(range(yard_start.hour, yard_end.hour+1))-1, 9) # 15:00 is approx index 9 from 06:00
-                gen_start = st.selectbox("เริ่ม (น.)", range(yard_start.hour, yard_end.hour+1), index=def_s, key=f"gs_{y_name}")
-                gen_end = st.selectbox("ถึง (น.)", range(yard_start.hour, yard_end.hour+1), index=def_e, key=f"ge_{y_name}")
-            
-            # Peak Time Selection
-            pk_c1, pk_c2 = st.columns(2)
-            with pk_c1: peak_h1 = st.selectbox("Peak Time 1 ", range(yard_start.hour, yard_end.hour+1), index=min(3, len(range(yard_start.hour, yard_end.hour+1))-1), key=f"pk1_{y_name}", help="ช่วงเวลาที่มีอ้อยเข้าเยอะกว่าปกติ")
-            with pk_c2: peak_h2 = st.selectbox("Peak Time 2 ", range(yard_start.hour, yard_end.hour+1), index=min(7, len(range(yard_start.hour, yard_end.hour+1))-1), key=f"pk2_{y_name}")
+        # Initialize truck variables with defaults (ป้องกัน Error สำหรับ Hub)
+        ft_type, ft_p = "Constant", {'val': 12.0}
+        ld_type, ld_p = "Constant", {'val': 15.0} # Default loading time
+        if y_name != hub_name:
+            with st.expander("🚜 ตั้งค่าการขึ้นอ้อย"):
+                ft_type, ft_p = stochastic_input_ui(f"ปริมาณอ้อยบนรถของลูกไร่ {y_name} (ตัน/คัน)", f"ft_{y_name}", 12.0)
+                ld_type, ld_p = stochastic_input_ui(f"⏱️ เวลาคีบต่อรถขนอ้อย (นาที/คัน)", f"ld_{y_name}", 15.0)
+        
+        plan_f, plan_b = [], []
+        gen_min_f, gen_max_f, gen_total_b = 0, 0, 0
+        gen_start, gen_end = 0, 0
+        peak_range_1, peak_range_2 = (0, 0), (0, 0)
+        p1_share, p2_share = (0, 0), (0, 0)
+        use_daily_gen = False
 
-            use_daily_gen = st.checkbox("🔄 สุ่มแผนใหม่ทุกวัน (Daily Random)", value=False, key=f"udg_{y_name}", help="หากเลือก ระบบจะสุ่มยอดเข้าใหม่ทุกวันตามเป้าที่ตั้งไว้ โดยไม่ใช้ค่าในตารางด้านล่าง")
-            
-            b_gen, b_reset = st.columns(2)
-            with b_gen:
-                if st.button("🎲 สุ่มและกระจายยอด", key=f"btn_gen_{y_name}", use_container_width=True):
-                    active_hours = [h for h in range(yard_start.hour, yard_end.hour + 1) if gen_start <= h <= gen_end]
-                    if active_hours:
-                        # สุ่ม Weight และปรับ Peak Time
-                        weights_f = np.random.rand(len(active_hours))
-                        weights_b = np.random.rand(len(active_hours))
-                        
-                        for i, h in enumerate(active_hours):
-                            if h == peak_h1 or h == peak_h2:
-                                weights_f[i] *= 3
-                                weights_b[i] *= 3
-                        
-                        # Normalize ให้ผลรวมเท่ากับเป้าหมายที่ตั้งไว้ (Total)
-                        dist_f = (weights_f / weights_f.sum() * gen_total_f) if weights_f.sum() > 0 else weights_f
-                        dist_b = (weights_b / weights_b.sum() * gen_total_b) if weights_b.sum() > 0 else weights_b
-                        
-                        # บันทึกลง Session State
-                        idx = 0
-                        for h_chk in range(yard_start.hour, yard_end.hour + 1):
+        if y_name != hub_name:
+            with st.expander("📝 แผนอ้อย"):
+                # --- ส่วนสุ่มแผนอ้อย (Auto-Generate) ---
+                st.markdown("🎲 **สุ่มแผนการเข้าอ้อย (Auto-Generate)**")
+                ag_c1, ag_c2 = st.columns(2)
+                with ag_c1: 
+                    c_min, c_max = st.columns(2)
+                    gen_min_f = c_min.number_input("สด Min (ตัน)", 0, 10000, 100, key=f"gminf_{y_name}")
+                    gen_max_f = c_max.number_input("สด Max (ตัน)", 0, 10000, 150, key=f"gmaxf_{y_name}")
+                    gen_total_b = st.number_input("เป้าอ้อยไหม้ (ตัน)", 0, 10000, 0, key=f"gtb_{y_name}")
+                with ag_c2:
+                    # Default 06:00 - 15:00 (Check bounds)
+                    def_s = 0 
+                    def_e = min(len(range(y_start.hour, y_end.hour+1))-1, 9) # 15:00 is approx index 9 from 06:00
+                    gen_start = st.selectbox("เริ่ม (น.)", range(y_start.hour, y_end.hour+1), index=def_s, key=f"gs_{y_name}")
+                    gen_end = st.selectbox("ถึง (น.)", range(y_start.hour, y_end.hour+1), index=def_e, key=f"ge_{y_name}")
+                
+                # Peak Time Selection
+                peak_opts = list(range(y_start.hour, y_end.hour+1))
+                if not peak_opts: peak_opts = [6] # Fallback
+                
+                # Default Indices
+                p1_s, p1_e = 0, min(2, len(peak_opts)-1)
+                p2_s, p2_e = min(4, len(peak_opts)-1), min(6, len(peak_opts)-1)
+
+                pk_c1, pk_c2 = st.columns(2)
+                with pk_c1: 
+                    peak_range_1 = st.select_slider("Peak Time 1 (ช่วงเวลา)", options=peak_opts, value=(peak_opts[p1_s], peak_opts[p1_e]), key=f"pk1_{y_name}")
+                    p1_share = st.slider(f"สัดส่วนยอด Peak 1 (%)", 0, 100, (30, 40), key=f"p1_sh_{y_name}", help="% ของยอดอ้อยรายวันที่เข้าในช่วงเวลานี้")
+                with pk_c2: 
+                    peak_range_2 = st.select_slider("Peak Time 2 (ช่วงเวลา)", options=peak_opts, value=(peak_opts[p2_s], peak_opts[p2_e]), key=f"pk2_{y_name}")
+                    p2_share = st.slider(f"สัดส่วนยอด Peak 2 (%)", 0, 100, (20, 30), key=f"p2_sh_{y_name}", help="% ของยอดอ้อยรายวันที่เข้าในช่วงเวลานี้")
+
+                use_daily_gen = st.checkbox("🔄 สุ่มแผนใหม่ทุกวัน (Daily Random)", value=False, key=f"udg_{y_name}", help="หากเลือก ระบบจะสุ่มยอดเข้าใหม่ทุกวันตามเป้าที่ตั้งไว้ โดยไม่ใช้ค่าในตารางด้านล่าง")
+                
+                b_gen, b_reset = st.columns(2)
+                with b_gen:
+                    if st.button("🎲 สุ่มและกระจายยอด", key=f"btn_gen_{y_name}", use_container_width=True):
+                        active_hours = [h for h in range(y_start.hour, y_end.hour + 1) if gen_start <= h <= gen_end]
+                        if active_hours:
+                            # สุ่ม Weight และปรับ Peak Time
+                            weights_f = np.random.rand(len(active_hours))
+                            weights_b = np.random.rand(len(active_hours))
+                            
+                            for i, h in enumerate(active_hours):
+                                in_p1 = peak_range_1[0] <= h <= peak_range_1[1]
+                                in_p2 = peak_range_2[0] <= h <= peak_range_2[1]
+                                if in_p1 or in_p2:
+                                    weights_f[i] *= 3
+                                    weights_b[i] *= 3
+                            
+                            # Normalize ให้ผลรวมเท่ากับเป้าหมายที่สุ่มได้จากช่วง Min-Max
+                            target_f = np.random.uniform(gen_min_f, gen_max_f)
+                            dist_f = (weights_f / weights_f.sum() * target_f) if weights_f.sum() > 0 else weights_f
+                            dist_b = (weights_b / weights_b.sum() * gen_total_b) if weights_b.sum() > 0 else weights_b
+                            
+                            # บันทึกลง Session State
+                            idx = 0
+                            for h_chk in range(y_start.hour, y_end.hour + 1):
+                                h_key = f"{h_chk:02d}:00"
+                                val_f, val_b = (dist_f[idx], dist_b[idx]) if h_chk in active_hours else (0.0, 0.0)
+                                if h_chk in active_hours: idx += 1
+                                st.session_state[f"f_{y_name}_{h_key}"] = float(val_f)
+                                st.session_state[f"b_{y_name}_{h_key}"] = float(val_b)
+                            st.rerun()
+                with b_reset:
+                    if st.button("🔄 รีเซ็ตเป็น 0", key=f"btn_reset_{y_name}", use_container_width=True):
+                        for h_chk in range(y_start.hour, y_end.hour + 1):
                             h_key = f"{h_chk:02d}:00"
-                            val_f, val_b = (dist_f[idx], dist_b[idx]) if h_chk in active_hours else (0.0, 0.0)
-                            if h_chk in active_hours: idx += 1
-                            st.session_state[f"f_{y_name}_{h_key}"] = float(val_f)
-                            st.session_state[f"b_{y_name}_{h_key}"] = float(val_b)
+                            st.session_state[f"f_{y_name}_{h_key}"] = 0.0
+                            st.session_state[f"b_{y_name}_{h_key}"] = 0.0
                         st.rerun()
-            with b_reset:
-                if st.button("🔄 รีเซ็ตเป็น 0", key=f"btn_reset_{y_name}", use_container_width=True):
-                    for h_chk in range(yard_start.hour, yard_end.hour + 1):
-                        h_key = f"{h_chk:02d}:00"
-                        st.session_state[f"f_{y_name}_{h_key}"] = 0.0
-                        st.session_state[f"b_{y_name}_{h_key}"] = 0.0
-                    st.rerun()
+                
+                st.divider()
+                h_labels = [f"{h:02d}:00" for h in range(y_start.hour, y_end.hour + 1)]
+                for h in h_labels:
+                    cx1, cx2 = st.columns(2)
+                    with cx1: f_v = st.number_input(f"อ้อยสด {h}", 0.0, 2000.0, 0.0, key=f"f_{y_name}_{h}")
+                    with cx2: b_v = st.number_input(f"อ้อยไฟไหม้ {h}", 0.0, 2000.0, 0.0, key=f"b_{y_name}_{h}")
+                    plan_f.append(f_v); plan_b.append(b_v)
             
-            st.divider()
-            plan_f, plan_b = [], []
-            h_labels = [f"{h:02d}:00" for h in range(yard_start.hour, yard_end.hour + 1)]
-            for h in h_labels:
-                cx1, cx2 = st.columns(2)
-                with cx1: f_v = st.number_input(f"อ้อยสด {h}", 0.0, 2000.0, 0.0, key=f"f_{y_name}_{h}")
-                with cx2: b_v = st.number_input(f"อ้อยไฟไหม้ {h}", 0.0, 2000.0, 0.0, key=f"b_{y_name}_{h}")
-                plan_f.append(f_v); plan_b.append(b_v)
-            
-            # Store Gen Params for Simulation
-            loc_params[y_name] = {
-                "fresh": plan_f, "burnt": plan_b, "dist": dist_h, "init_f": s_init_f, "init_b": s_init_b,
-                "gen_params": {
-                    "use_random": use_daily_gen, "total_f": gen_total_f, "total_b": gen_total_b,
-                    "start": gen_start, "end": gen_end, "peaks": [peak_h1, peak_h2]
-                }
+        # Store Gen Params for Simulation
+        loc_params[y_name] = {
+            "fresh": plan_f, "burnt": plan_b, "dist": dist_h,
+            "init_f": s_init_f, "init_b": s_init_b,
+            "truck_cap_type": ft_type, "truck_cap_params": ft_p,
+            "load_time_type": ld_type, "load_time_params": ld_p,
+            "start_min": start_m_val, "end_min": end_m_val,
+            "gen_params": {
+                "use_random": use_daily_gen, "min_f": gen_min_f, "max_f": gen_max_f, "total_b": gen_total_b,
+                "start": gen_start, "end": gen_end, "peaks": [peak_range_1, peak_range_2],
+                "peak_shares": [p1_share, p2_share]
             }
+        }
 
 # Top metrics summarizing the plan
 st.divider()
@@ -279,19 +327,23 @@ def run_ksl_simulation():
     slots_f = simpy.Resource(env, capacity=n_slots_fresh) if n_slots_fresh > 0 else None
     slots_b = simpy.Resource(env, capacity=n_slots_burnt) if n_slots_burnt > 0 else None
     hub_full_f, hub_full_b = simpy.Store(env), simpy.Store(env)
-    loaders_res = {y: simpy.Resource(env, capacity=fleet_config[y]['n_loaders']) for y in yards_list}
+    loaders_res = {y: simpy.Resource(env, capacity=fleet_config[y]['n_loaders']) for y in yards_list if fleet_config[y]['n_loaders'] > 0}
     final_y = {y: {
         "empty": simpy.Store(env), "full_f": simpy.Store(env), "full_b": simpy.Store(env),
-        "wait_f": simpy.Container(env, init=0, capacity=10**9), "wait_b": simpy.Container(env, init=0, capacity=10**9)
+        "wait_f": simpy.Store(env), "wait_b": simpy.Store(env)
     } for y in yards_list}
     
     kpi = {"delivered_ton": {y: 0.0 for y in yards_list}, "trips": {y: 0 for y in yards_list}, "history": [], "hourly_load": [], "loading_events": [], "incoming_cane": [], "hub_wait": [], "ext_wait": [], "total_dist_head": 0.0, "total_dist_tail": 0.0, "factory_delivered": 0.0,
-           "total_fac_wait": 0.0, "fac_wait_count": 0, "trailer_util_sum": 0.0, "monitor_count": 0, "total_trailers": sum(fleet_config[y]['n_e'] for y in yards_list)}
+           "total_fac_wait": 0.0, "fac_wait_count": 0, "trailer_util_sum": 0.0, "monitor_count": 0, "total_trailers": sum(fleet_config[y]['n_e'] for y in yards_list),
+           "incoming_trucks": [], "queue_len": [], "cycle_logs": []}
     fac_q_monitor = {"สด": 0, "ไหม้": 0}
     t_util, l_util = {}, {}
 
     def add_util(tracker, key, duration):
         tracker[key] = tracker.get(key, 0.0) + duration
+
+    def log_cycle(res_type, name, yard, duration):
+        kpi['cycle_logs'].append({"Type": res_type, "Name": name, "Yard": yard, "Duration": duration})
 
     # --- INITIALIZATION ---
     for y in yards_list:
@@ -310,42 +362,93 @@ def run_ksl_simulation():
         
         for j in range(n_e): final_y[y]['empty'].put({"id": f"{y}-E{j+1}", "loc": y, "start": env.now})
 
+    # Shared state for active trailers (to allow parallel loading into one trailer)
+    yard_active_trailer = {y: {'f': None, 'b': None, 'lock': simpy.Resource(env, 1)} for y in yards_list}
+
     def loader_worker(y_name):
         while env.now < sim_duration:
+            y_start_min = loc_params[y_name]['start_min']
+            y_end_min = loc_params[y_name]['end_min']
             # Multi-day Logic: ตรวจสอบเวลาปัจจุบันในรอบวัน (0-1439 นาที)
             tod = env.now % 1440
             
-            # 1. เช็คเวลาปิดลาน (Overnight Sleep)
-            if tod >= yard_close_min:
-                yield env.timeout(1440 - tod)
+            # Check work: If queue not empty, keep working even if closed (Overtime)
+            has_f_trucks = len(final_y[y_name]['wait_f'].items) > 0
+            has_b_trucks = len(final_y[y_name]['wait_b'].items) > 0
+            
+            is_open = False
+            if y_end_min > y_start_min:
+                is_open = (y_start_min <= tod < y_end_min)
+            else: # Cross midnight
+                is_open = (tod >= y_start_min or tod < y_end_min)
+
+            if not is_open and not (has_f_trucks or has_b_trucks):
+                # Wait until open
+                if tod < y_start_min:
+                    yield env.timeout(y_start_min - tod)
+                elif tod >= y_end_min:
+                    yield env.timeout(1440 - tod + y_start_min)
                 continue
 
-            # ตรวจสอบเวลาพักลาน (Yard Break)
-            if yb_s < yb_e and yb_s <= tod < yb_e:
-                yield env.timeout(yb_e - tod)
-                continue
-
-            has_f = final_y[y_name]['wait_f'].level >= trailer_cap
-            has_b = final_y[y_name]['wait_b'].level >= trailer_cap
-            if (has_f or has_b) and len(final_y[y_name]['empty'].items) > 0:
-                t_type = 'f' if has_f else 'b'
+            if (has_f_trucks or has_b_trucks):
+                t_type = 'f' if has_f_trucks else 'b'
                 with loaders_res[y_name].request() as req:
                     yield req
-                    # ตรวจสอบเวลาพักอีกครั้งหลังได้คิว (ป้องกันกรณีรอคิวจนเลยเข้าเวลาพัก)
-                    tod_check = env.now % 1440
-                    if yb_s < yb_e and yb_s <= tod_check < yb_e:
-                        yield env.timeout(yb_e - tod_check)
+                    
+                    # 1. Grab Farmer Truck
+                    truck_load = yield final_y[y_name][f'wait_{t_type}'].get()
+                    
+                    # 2. Process/Load Truck (Time to lift cane from truck)
                     start_l = env.now
-                    tail = yield final_y[y_name]['empty'].get()
-                    yield env.timeout(get_stochastic_val(hook_dist, hook_p))
-                    yield final_y[y_name][f'wait_{t_type}'].get(trailer_cap)
-                    yield env.timeout(get_stochastic_val(load_dist, load_p))
-                    kpi["delivered_ton"][y_name] += trailer_cap
-                    kpi['loading_events'].append({'time_min': env.now, 'yard': y_name, 'tons': trailer_cap})
-                    add_util(l_util, y_name, env.now - start_l)
-                    tail['start'] = env.now 
-                    if y_name == hub_name: yield (hub_full_f if t_type == 'f' else hub_full_b).put(tail)
-                    else: yield final_y[y_name][f'full_{t_type}'].put(tail)
+                    # Use yard-specific loading time per truck
+                    yield env.timeout(get_stochastic_val(loc_params[y_name]['load_time_type'], loc_params[y_name]['load_time_params']))
+                    duration = env.now - start_l
+                    add_util(l_util, y_name, duration)
+                    log_cycle('Loader', f"Loader @ {y_name}", y_name, duration)
+                    
+                    # 3. Dump into Shared Active Trailer (Critical Section)
+                    with yard_active_trailer[y_name]['lock'].request() as lock_req:
+                        yield lock_req
+                        
+                        # Get or Create Active Trailer
+                        active_t = yard_active_trailer[y_name][t_type]
+                        if active_t is None:
+                            if len(final_y[y_name]['empty'].items) > 0:
+                                active_t = yield final_y[y_name]['empty'].get()
+                                active_t['load'] = 0.0
+                                yard_active_trailer[y_name][t_type] = active_t
+                            else:
+                                # No empty trailers, must wait. Put truck back? 
+                                # For simplicity, wait here for empty (blocking mutex - strictly serial dumping)
+                                active_t = yield final_y[y_name]['empty'].get()
+                                active_t['load'] = 0.0
+                                yard_active_trailer[y_name][t_type] = active_t
+                        
+                        # Fill
+                        space = trailer_cap - active_t['load']
+                        amount_to_fill = min(space, truck_load)
+                        active_t['load'] += amount_to_fill
+                        kpi["delivered_ton"][y_name] += amount_to_fill
+                        kpi['loading_events'].append({'time_min': env.now, 'yard': y_name, 'tons': amount_to_fill})
+                        
+                        # If trailer full, dispatch
+                        if active_t['load'] >= trailer_cap - 0.01:
+                            active_t['start'] = env.now
+                            if y_name == hub_name:
+                                yield (hub_full_f if t_type == 'f' else hub_full_b).put(active_t)
+                            else:
+                                yield final_y[y_name][f'full_{t_type}'].put(active_t)
+                            yard_active_trailer[y_name][t_type] = None
+                        
+                        # If truck has remainder (rare case if truck > trailer space, but logical)
+                        rem = truck_load - amount_to_fill
+                        if rem > 0:
+                            # Put remainder back to head of queue
+                            # Since we don't have push_front, we put at end. 
+                            # Or simpler: we assume we just fetch a new trailer immediately in this atomic block 
+                            # if we have multiple empties. But let's stick to putting back to queue for robustness.
+                            yield final_y[y_name][f'wait_{t_type}'].put(rem)
+                            
             else: yield env.timeout(1)
 
     def tractor_leg_b(t_id, init_job=None):
@@ -353,16 +456,7 @@ def run_ksl_simulation():
         if init_job:
             m_key = "สด" if init_job == 'F' else "ไหม้"
             fac_q_monitor[m_key] += 1
-            
             t_arrival = env.now
-            # คำนวณเวลารอโรงงานเปิด (สำหรับวันแรก หรือกรณีข้ามวัน)
-            tod = env.now % 1440
-            wait_time = max(0, fac_open_min - tod)
-            if wait_time > 0: yield env.timeout(wait_time)
-            
-            # ตรวจสอบเวลาพักโรงงาน (Factory Break) - ขารถค้างคืน
-            if fb_s < fb_e and fb_s <= (env.now % 1440) < fb_e:
-                yield env.timeout(fb_e - (env.now % 1440))
             
             target_res = slots_f if init_job == 'F' else slots_b
             if target_res:
@@ -378,18 +472,16 @@ def run_ksl_simulation():
             speed = get_stochastic_val(fleet_config[hub_name]['speed_type'], fleet_config[hub_name]['speed_params'])
             yield env.timeout((dist_hub_factory/speed)*60)
             yield final_y[hub_name]['empty'].put({"id": f"Overnight-{t_id}", "loc": hub_name, "start": env.now})
-            add_util(t_util, tid_name, env.now - start_work)
+            duration = env.now - start_work
+            add_util(t_util, tid_name, duration)
+            log_cycle('Tractor', tid_name, hub_name, duration)
             kpi['trips'][hub_name] += 1
             kpi['total_dist_head'] += dist_hub_factory
             kpi['total_dist_tail'] += dist_hub_factory
 
         while env.now < sim_duration:
             tod = env.now % 1440
-            
-            # 1. เช็คเวลาปิดโรงงาน (Overnight Sleep)
-            if tod >= fac_close_min:
-                yield env.timeout(1440 - tod)
-                continue
+            # Factory works 24h, no wait loop needed for closed hours
 
             t_type = "B" if len(hub_full_b.items) > 0 else ("F" if len(hub_full_f.items) > 0 else None)
             if t_type:
@@ -402,14 +494,6 @@ def run_ksl_simulation():
                 
                 t_arrival = env.now
                 
-                tod_arrival = env.now % 1440
-                wait_time = max(0, fac_open_min - tod_arrival)
-                if wait_time > 0: yield env.timeout(wait_time)
-                
-                # ตรวจสอบเวลาพักโรงงาน (Factory Break) - ขาปกติ
-                if fb_s < fb_e and fb_s <= (env.now % 1440) < fb_e:
-                    yield env.timeout(fb_e - (env.now % 1440))
-                
                 # --- จำลองรถชาวไร่แทรกคิว (External Traffic) ---
                 if np.random.uniform(0, 100) < ext_prob:
                     # สุ่มจำนวนรถที่ขวางอยู่ และคำนวณเวลาที่ต้องรอ
@@ -418,24 +502,13 @@ def run_ksl_simulation():
                     yield env.timeout(wait_ext_duration)
                     
                     current_day = int(env.now // 1440) + 1
-                    tod_min = (start_min + env.now) % 1440
+                    tod_min = env.now % 1440
                     kpi['ext_wait'].append({'Hour': f"D{current_day} {int(tod_min//60):02d}:00", 'Tractor': tid_name, 'Duration': wait_ext_duration})
                 
                 target_res = slots_b if t_type == "B" else slots_f
                 if target_res:
                     with target_res.request() as req:
                         yield req
-                        
-                        # --- FIX: Factory Closing Logic ---
-                        # Ensure we don't start unloading if the factory has closed while we waited
-                        tod_now = env.now % 1440
-                        if tod_now >= fac_close_min:
-                            # Factory closed, hold slot but wait until morning
-                            yield env.timeout(1440 - tod_now + fac_open_min)
-                        elif tod_now < fac_open_min:
-                            # Arrived early morning
-                            yield env.timeout(fac_open_min - tod_now)
-                        # ----------------------------------
                         
                         q_duration = env.now - t_arrival
                         kpi['total_fac_wait'] += q_duration
@@ -446,6 +519,7 @@ def run_ksl_simulation():
                 yield env.timeout((dist_hub_factory/speed)*60)
                 yield final_y[hub_name]['empty'].put(tail)
                 add_util(t_util, tid_name, env.now - start_work)
+                log_cycle('Tractor', tid_name, hub_name, env.now - start_work)
                 kpi['trips'][hub_name] += 1
                 kpi['total_dist_head'] += dist_hub_factory * 2
                 kpi['total_dist_tail'] += dist_hub_factory * 2
@@ -453,11 +527,23 @@ def run_ksl_simulation():
 
     def tractor_leg_a(y_name, t_idx, dist):
         tid_name = f"{y_name} #{t_idx}"
+        y_start_min = loc_params[y_name]['start_min']
+        y_end_min = loc_params[y_name]['end_min']
         while env.now < sim_duration:
             tod = env.now % 1440
-            # 1. เช็คเวลาปิดลาน
-            if tod >= yard_close_min:
-                yield env.timeout(1440 - tod)
+            
+            # Logic: ทำงานต่อถ้ามีหางหนักค้าง (Overtime / 24h if busy)
+            has_job = (len(final_y[y_name]['full_f'].items) > 0 or len(final_y[y_name]['full_b'].items) > 0)
+            
+            is_open = False
+            if y_end_min > y_start_min: is_open = (y_start_min <= tod < y_end_min)
+            else: is_open = (tod >= y_start_min or tod < y_end_min) # กรณีตั้งเวลาข้ามวัน
+
+            if not is_open and not has_job:
+                if tod < y_start_min:
+                    yield env.timeout(y_start_min - tod)
+                else: # tod >= y_end_min
+                    yield env.timeout(1440 - tod + y_start_min)
                 continue
 
             t_type = 'f' if len(final_y[y_name]['full_f'].items) > 0 else ('b' if len(final_y[y_name]['full_b'].items) > 0 else None)
@@ -474,27 +560,108 @@ def run_ksl_simulation():
                 wait_duration = env.now - start_wait
                 if wait_duration > 0:
                     current_day = int(env.now // 1440) + 1
-                    tod_min = (start_min + env.now) % 1440
+                    tod_min = env.now % 1440
                     kpi['hub_wait'].append({'Hour': f"D{current_day} {int(tod_min//60):02d}:00", 'Tractor': tid_name, 'Duration': wait_duration})
                 
                 yield env.timeout((dist/speed)*60)
                 yield final_y[y_name]['empty'].put(new_tail)
                 add_util(t_util, tid_name, env.now - start_work)
+                log_cycle('Tractor', tid_name, y_name, env.now - start_work)
                 kpi['trips'][y_name] += 1
                 kpi['total_dist_head'] += dist * 2
                 kpi['total_dist_tail'] += dist * 2
             else: yield env.timeout(5)
 
+    def tractor_direct(y_name, t_idx, dist):
+        tid_name = f"{y_name} #{t_idx}"
+        y_start_min = loc_params[y_name]['start_min']
+        y_end_min = loc_params[y_name]['end_min']
+        
+        while env.now < sim_duration:
+            tod = env.now % 1440
+            
+            # Logic: ทำงานต่อถ้ามีหางหนักค้าง (Overtime / 24h if busy)
+            has_job = (len(final_y[y_name]['full_f'].items) > 0 or len(final_y[y_name]['full_b'].items) > 0)
+            
+            is_open = False
+            if y_end_min > y_start_min: is_open = (y_start_min <= tod < y_end_min)
+            else: is_open = (tod >= y_start_min or tod < y_end_min)
+
+            if not is_open and not has_job:
+                if tod < y_start_min:
+                    yield env.timeout(y_start_min - tod)
+                else: # tod >= y_end_min
+                    yield env.timeout(1440 - tod + y_start_min)
+                continue
+
+            # Check full trailers at yard
+            t_type = 'f' if len(final_y[y_name]['full_f'].items) > 0 else ('b' if len(final_y[y_name]['full_b'].items) > 0 else None)
+            
+            if t_type:
+                start_work = env.now
+                # Get full trailer
+                tail = yield final_y[y_name][f'full_{t_type}'].get()
+                
+                # Travel to Factory (Direct)
+                speed = get_stochastic_val(fleet_config[y_name]['speed_type'], fleet_config[y_name]['speed_params'])
+                yield env.timeout((dist/speed)*60)
+                
+                # ... Factory Queue Logic (Similar to Leg B) ...
+                m_key = "ไหม้" if t_type == 'b' else "สด"
+                fac_q_monitor[m_key] += 1
+                t_arrival = env.now
+
+                # --- จำลองรถชาวไร่แทรกคิว (External Traffic) ---
+                if np.random.uniform(0, 100) < ext_prob:
+                    # สุ่มจำนวนรถที่ขวางอยู่ และคำนวณเวลาที่ต้องรอ
+                    n_ext = np.random.randint(n_ext_min, n_ext_max + 1)
+                    wait_ext_duration = sum([get_stochastic_val(unld_dist, unld_p) for _ in range(n_ext)])
+                    yield env.timeout(wait_ext_duration)
+                    
+                    current_day = int(env.now // 1440) + 1
+                    tod_min = env.now % 1440
+                    kpi['ext_wait'].append({'Hour': f"D{current_day} {int(tod_min//60):02d}:00", 'Tractor': tid_name, 'Duration': wait_ext_duration})
+                
+                # Queueing
+                target_res = slots_b if t_type == 'b' else slots_f
+                if target_res:
+                    with target_res.request() as req:
+                        yield req
+                        
+                        # Record Wait Time (Fix: Include Direct Trucks in metrics)
+                        q_duration = env.now - t_arrival
+                        kpi['total_fac_wait'] += q_duration
+                        kpi['fac_wait_count'] += 1
+                        
+                        # Unloading
+                        yield env.timeout(get_stochastic_val(unld_dist, unld_p))
+                
+                kpi['factory_delivered'] += trailer_cap
+                fac_q_monitor[m_key] -= 1
+                kpi['trips'][y_name] += 1
+                
+                # Return empty to Yard
+                yield env.timeout((dist/speed)*60)
+                yield final_y[y_name]['empty'].put(tail)
+                
+                add_util(t_util, tid_name, env.now - start_work)
+                log_cycle('Tractor', tid_name, y_name, env.now - start_work)
+                kpi['total_dist_head'] += dist * 2
+                kpi['total_dist_tail'] += dist * 2
+            else:
+                yield env.timeout(5)
+
     def monitor_proc():
         while env.now <= sim_duration:
             # Format Day + Time
             current_day = int(env.now // 1440) + 1
-            tod_min = (start_min + env.now) % 1440
+            tod_min = env.now % 1440
             h_str = f"D{current_day} {int(tod_min//60):02d}:00"
 
             for y in yards_list:
                 kpi["history"].append({"Hour": h_str, "Location": y, "Value": len(final_y[y]['empty'].items), "Type": "1. หางว่าง"})
                 kpi["history"].append({"Hour": h_str, "Location": y, "Value": len(final_y[y]['full_f'].items) + len(final_y[y]['full_b'].items), "Type": "2. หางหนักค้างลาน"})
+                kpi["queue_len"].append({"Hour": h_str, "Location": y, "Count": len(final_y[y]['wait_f'].items) + len(final_y[y]['wait_b'].items)})
             kpi["history"].append({"Hour": h_str, "Location": "Hub (สด)", "Value": len(hub_full_f.items), "Type": "3. หางหนักค้าง Hub"})
             kpi["history"].append({"Hour": h_str, "Location": "Hub (ไหม้)", "Value": len(hub_full_b.items), "Type": "3. หางหนักค้าง Hub"})
             kpi["history"].append({"Hour": h_str, "Location": "โรงงาน (สด)", "Value": fac_q_monitor["สด"], "Type": "4. คิวโรงงาน"})
@@ -514,35 +681,71 @@ def run_ksl_simulation():
             for i in range(n_hub_t):
                 job = 'F' if i < init_fac_fresh else ('B' if i < (init_fac_fresh + init_fac_burnt) else None)
                 env.process(tractor_leg_b(i+1, job))
+        elif y == "ศูนย์โนนสัง":
+            for i in range(fleet_config[y]['n_t']): env.process(tractor_direct(y, i+1, loc_params[y]['dist']))
         else:
             for i in range(fleet_config[y]['n_t']): env.process(tractor_leg_a(y, i+1, loc_params[y]['dist']))
         def farmer(yn):
             gp = loc_params[yn]['gen_params']
+            y_s_h = loc_params[yn]['start_min'] // 60
+            y_e_h = loc_params[yn]['end_min'] // 60
             
             for day in range(num_days):
+                # Wait for yard opening
+                tod = env.now % 1440
+                if tod < loc_params[yn]['start_min']:
+                    yield env.timeout(loc_params[yn]['start_min'] - tod)
+
                 # Determine Plan for the Day
                 daily_fresh, daily_burnt = [], []
                 
                 if gp['use_random']:
                     # Generate Random Plan
-                    active_hours = [h for h in range(yard_start.hour, yard_end.hour + 1) if gp['start'] <= h <= gp['end']]
+                    active_hours = [h for h in range(y_s_h, y_e_h + 1) if gp['start'] <= h <= gp['end']]
                     if not active_hours:
                         daily_fresh = [0.0] * len(loc_params[yn]['fresh'])
                         daily_burnt = [0.0] * len(loc_params[yn]['burnt'])
                     else:
-                        w_f = np.random.rand(len(active_hours))
-                        w_b = np.random.rand(len(active_hours))
-                        # Apply Peaks
-                        for idx, h_val in enumerate(active_hours):
-                            if h_val in gp['peaks']:
-                                w_f[idx] *= 2.5
-                                w_b[idx] *= 2.5
+                        # Identify Indices
+                        idx_p1 = [i for i, h in enumerate(active_hours) if gp['peaks'][0][0] <= h <= gp['peaks'][0][1]]
+                        idx_p2 = [i for i, h in enumerate(active_hours) if gp['peaks'][1][0] <= h <= gp['peaks'][1][1] and i not in idx_p1]
+                        idx_norm = [i for i, h in enumerate(active_hours) if i not in idx_p1 and i not in idx_p2]
                         
-                        d_f = (w_f / w_f.sum() * gp['total_f']) if w_f.sum() > 0 else w_f
-                        d_b = (w_b / w_b.sum() * gp['total_b']) if w_b.sum() > 0 else w_b
+                        # Shares
+                        s1 = np.random.uniform(gp['peak_shares'][0][0], gp['peak_shares'][0][1]) / 100.0
+                        s2 = np.random.uniform(gp['peak_shares'][1][0], gp['peak_shares'][1][1]) / 100.0
+                        if s1 + s2 > 1.0:
+                            scale = s1 + s2
+                            s1 /= scale
+                            s2 /= scale
+                        s_rest = 1.0 - s1 - s2
+                        
+                        # สุ่มยอดรายวันจากช่วง Min-Max
+                        daily_target_f = np.random.uniform(gp['min_f'], gp['max_f'])
+                        daily_target_b = gp['total_b']
+                        
+                        wf_base = np.random.rand(len(active_hours))
+                        wb_base = np.random.rand(len(active_hours))
+                        
+                        d_f = np.zeros(len(active_hours))
+                        d_b = np.zeros(len(active_hours))
+                        
+                        def distribute(total, indices, w_base):
+                            if not indices: return
+                            sw = w_base[indices]
+                            if sw.sum() == 0: sw[:] = 1
+                            return (sw / sw.sum()) * total
+
+                        if idx_p1: d_f[idx_p1] = distribute(daily_target_f * s1, idx_p1, wf_base)
+                        if idx_p2: d_f[idx_p2] = distribute(daily_target_f * s2, idx_p2, wf_base)
+                        if idx_norm: d_f[idx_norm] = distribute(daily_target_f * s_rest, idx_norm, wf_base)
+
+                        if idx_p1: d_b[idx_p1] = distribute(daily_target_b * s1, idx_p1, wb_base)
+                        if idx_p2: d_b[idx_p2] = distribute(daily_target_b * s2, idx_p2, wb_base)
+                        if idx_norm: d_b[idx_norm] = distribute(daily_target_b * s_rest, idx_norm, wb_base)
                         
                         # Map back to full hours
-                        full_h = range(yard_start.hour, yard_end.hour + 1)
+                        full_h = range(y_s_h, y_e_h + 1)
                         daily_fresh = [d_f[active_hours.index(h)] if h in active_hours else 0.0 for h in full_h]
                         daily_burnt = [d_b[active_hours.index(h)] if h in active_hours else 0.0 for h in full_h]
                 else:
@@ -552,11 +755,33 @@ def run_ksl_simulation():
 
                 for f, b in zip(daily_fresh, daily_burnt):
                     if f + b > 0:
-                        tod_min = (start_min + env.now) % 1440
+                        tod_min = env.now % 1440
                         h_str = f"D{day+1} {int(tod_min//60):02d}:00"
                         kpi["incoming_cane"].append({"Hour": h_str, "Location": yn, "Amount": f + b})
-                    if f > 0: yield final_y[yn]['wait_f'].put(f)
-                    if b > 0: yield final_y[yn]['wait_b'].put(b)
+                        
+                        # Convert Plan (Tons) to Trucks
+                        f_trucks, b_trucks = 0, 0
+                        
+                        # Fresh trucks
+                        rem_f = f
+                        while rem_f > 0:
+                            cap = get_stochastic_val(loc_params[yn]['truck_cap_type'], loc_params[yn]['truck_cap_params'])
+                            load = min(rem_f, cap)
+                            yield final_y[yn]['wait_f'].put(load)
+                            rem_f -= load
+                            f_trucks += 1
+                            
+                        # Burnt trucks
+                        rem_b = b
+                        while rem_b > 0:
+                            cap = get_stochastic_val(loc_params[yn]['truck_cap_type'], loc_params[yn]['truck_cap_params'])
+                            load = min(rem_b, cap)
+                            yield final_y[yn]['wait_b'].put(load)
+                            rem_b -= load
+                            b_trucks += 1
+                            
+                        kpi["incoming_trucks"].append({"Hour": h_str, "Location": yn, "Count": f_trucks + b_trucks})
+
                     yield env.timeout(60)
                 # จบแผนวันนั้นแล้ว ให้รอจนขึ้นวันใหม่ (Sleep overnight)
                 day_gap = 1440 - (len(daily_fresh) * 60)
@@ -564,6 +789,24 @@ def run_ksl_simulation():
         env.process(farmer(y))
 
     env.run(until=sim_duration + 1)
+    
+    # --- Calculate End-of-Sim Metrics ---
+    stuck_tons = 0
+    leftover_tons = 0
+    
+    # 1. Stuck in Factory Queue (On the road / Queueing / Unloading)
+    stuck_tons += (fac_q_monitor["สด"] + fac_q_monitor["ไหม้"]) * trailer_cap
+    
+    # 2. Stuck at Hub (Full trailers waiting at Hub)
+    stuck_tons += (len(hub_full_f.items) + len(hub_full_b.items)) * trailer_cap
+    
+    for y in yards_list:
+        if y != hub_name: stuck_tons += (len(final_y[y]['full_f'].items) + len(final_y[y]['full_b'].items)) * trailer_cap
+        leftover_tons += sum(final_y[y]['wait_f'].items) + sum(final_y[y]['wait_b'].items)
+        
+    kpi['stuck_tons'] = stuck_tons
+    kpi['leftover_tons'] = leftover_tons
+    
     return kpi, final_y, t_util, l_util, sim_duration
 
 # ==========================================
@@ -574,13 +817,10 @@ if st.button("🚀 รันการจำลองระบบ", use_container
     df_h = pd.DataFrame(data['history'])
     
     # --- SUMMARY METRICS CALCULATION ---
-    total_plan = 0
     total_trips = sum(data['trips'].values())
-    for y in yards_list:
-        if loc_params[y]['gen_params']['use_random']:
-            total_plan += (loc_params[y]['gen_params']['total_f'] + loc_params[y]['gen_params']['total_b']) * num_days
-        else:
-            total_plan += (sum(loc_params[y]['fresh']) + sum(loc_params[y]['burnt'])) * num_days
+    
+    # FIX: ใช้ยอดรวมจากข้อมูลจริงที่เกิดขึ้นใน Sim (incoming_cane) เพื่อความแม่นยำ 100%
+    total_plan = sum(d['Amount'] for d in data['incoming_cane'])
             
     total_loaded = sum(data['delivered_ton'].values())
     total_delivered = data['factory_delivered']
@@ -595,10 +835,11 @@ if st.button("🚀 รันการจำลองระบบ", use_container
     # 1. Workload = Plan + Stock
     total_workload = total_plan + total_init_inv
     
-    # 2. คีบไม่หมด (Leftover in Field)
-    not_loaded = max(0, total_plan - total_loaded)
-    # 2. ส่งไม่สำเร็จ (ค้างลาน/บนรถ/คิว) = (สต็อกเก่า+ที่คีบได้ใหม่) - ที่ส่งออกไปแล้ว
-    not_delivered = max(0, (total_init_inv + total_loaded) - total_delivered)
+    # 3. ส่งไม่สำเร็จ (Stuck)
+    not_delivered = data['stuck_tons']
+    
+    # 2. คีบไม่หมด (Leftover) - ให้เป็นยอดคงเหลือเพื่อดุลบัญชี (รวมคิวรอ + ค้างในหาง + กำลังคีบ)
+    not_loaded = max(0, total_workload - total_delivered - not_delivered)
 
     st.markdown("### 🏆 สรุปผลการดำเนินงาน (Executive Summary)")
     
@@ -606,8 +847,8 @@ if st.button("🚀 รันการจำลองระบบ", use_container
     mc1, mc2, mc3, mc4 = st.columns(4)
     mc1.metric("1. ภาระงานรวม (Total)", f"{total_workload:,.0f} ตัน", help="สูตร: แผนอ้อยใหม่ตลอดช่วงเวลา + สต็อกเก่าค้างลาน/Hub/โรงงาน")
     mc2.metric("2. ส่งเข้าโรงงานสำเร็จ", f"{total_delivered:,.0f} ตัน", help="สูตร: อ้อยที่ผ่านกระบวนการเทลงรางและรถออกจากโรงงานเรียบร้อยแล้ว")
-    mc3.metric("3. ส่งไม่สำเร็จ (Stuck)", f"{not_delivered:,.0f} ตัน", help="สูตร: ภาระงานรวม - ส่งสำเร็จ - คีบไม่หมด\n(คืออ้อยที่ค้างอยู่บนรถ, ค้างที่ Hub, หรือรอคิวหน้าโรงงาน)")
-    mc4.metric("4. คีบไม่หมด (Leftover)", f"{not_loaded:,.0f} ตัน", help="สูตร: แผนอ้อยใหม่ - ยอดที่รถคีบทำงานได้จริง\n(คืออ้อยที่คีบไม่ทันหรืออ้อยที่อยู่บนหางที่ยังไม่เต็ม)")
+    mc3.metric("3. ส่งไม่สำเร็จ (Stuck)", f"{not_delivered:,.0f} ตัน", help="สูตร: หางหนักที่เต็มแล้วแต่ยังส่งไม่ถึงรางเท (ค้างที่ลาน/Hub/บนรถขนส่ง/คิวโรงงาน)")
+    mc4.metric("4. คีบไม่หมด (Leftover)", f"{not_loaded:,.0f} ตัน", help="สูตร: อ้อยที่ยังค้างอยู่ในคิวรถเกษตรกร (ยังไม่ได้ถูกคีบ)")
     
     # Row 2: Distance & Trips (Moved to Top)
     d1, d2, d3 = st.columns(3)
@@ -646,10 +887,38 @@ if st.button("🚀 รันการจำลองระบบ", use_container
     st.divider()
 
     # --- TABS: MONITOR & FLEET ---
-    tab_mon, tab_fleet = st.tabs(["📈 Monitoring (สถานะระบบ)", "⚙️ Fleet & Trips (รถและเที่ยววิ่ง)"])
+    tab_mon, tab_fleet, tab_cycle = st.tabs(["📈 Monitoring (สถานะระบบ)", "⚙️ Fleet & Trips (รถและเที่ยววิ่ง)", "⏱️ Cycle Analysis (วิเคราะห์รอบเวลา)"])
     
     with tab_mon:
         st.caption("กราฟแสดงสถานะของระบบตามช่วงเวลา (Time Series Monitor)")
+        
+        # 1. Incoming Trucks
+        if data['incoming_trucks']:
+            df_it = pd.DataFrame(data['incoming_trucks'])
+            st.plotly_chart(px.line(df_it, x="Hour", y="Count", color="Location", markers=True, title="🚜 จำนวนรถขนอ้อยขาเข้า (Incoming Trucks)"), use_container_width=True)
+
+        # 2. Queue Length
+        if data['queue_len']:
+            df_q = pd.DataFrame(data['queue_len'])
+            st.plotly_chart(px.line(df_q, x="Hour", y="Count", color="Location", markers=True, title="⏳ คิวรถขนอ้อยรอคีบ (Queue Length Realtime)"), use_container_width=True)
+
+        # 3. Realtime Loading Rate (Moved here)
+        if data['loading_events']:
+            df_load_events = pd.DataFrame(data['loading_events'])
+            
+            # จัดกลุ่มข้อมูลเป็นรายชั่วโมง (Time Binning)
+            df_load_events['Day'] = df_load_events['time_min'].apply(lambda x: int(x // 1440) + 1)
+            df_load_events['Hour_of_Day'] = df_load_events['time_min'].apply(lambda x: int(((start_min + x) % 1440) // 60))
+            df_load_events['Time_Str'] = df_load_events.apply(lambda r: f"D{int(r['Day'])} {int(r['Hour_of_Day']):02d}:00", axis=1)
+            
+            # รวมปริมาณตันอ้อยในแต่ละชั่วโมง (Group by Hour & Yard)
+            df_realtime = df_load_events.groupby(['Time_Str', 'yard'])['tons'].sum().reset_index(name='ปริมาณอ้อย (ตัน)')
+            df_realtime = df_realtime.sort_values('Time_Str')
+            
+            st.plotly_chart(px.line(df_realtime, x='Time_Str', y='ปริมาณอ้อย (ตัน)', color='yard', markers=True, 
+                                    title='ปริมาณการคีบอ้อยรายชั่วโมง (Realtime Tonnage)'), key="realtime_loading_chart",
+                             use_container_width=True)
+
         if data['incoming_cane']:
             df_in = pd.DataFrame(data['incoming_cane'])
             st.plotly_chart(px.line(df_in, x="Hour", y="Amount", color="Location", markers=True, title="ปริมาณอ้อยเข้าลานตามช่วงเวลา (Incoming Cane)"), use_container_width=True)
@@ -706,6 +975,26 @@ if st.button("🚀 รันการจำลองระบบ", use_container
                 st.plotly_chart(px.bar(pd.DataFrame(u_l_list), x="Yard", y="Utilization (%)", color="Utilization (%)", title="ประสิทธิภาพการใช้รถคีบ"), use_container_width=True)
             else:
                 st.info("ไม่มีข้อมูลรถคีบ")
+
+    with tab_cycle:
+        st.caption("วิเคราะห์สถิติเวลาการทำงานต่อรอบ (Cycle Time Statistics)")
+        if data['cycle_logs']:
+            df_cycle = pd.DataFrame(data['cycle_logs'])
+            
+            st.subheader("📊 ตารางสถิติรอบเวลา (แยกตามทรัพยากร)")
+            # Group by Type, Yard, Name
+            stats = df_cycle.groupby(['Type', 'Yard', 'Name'])['Duration'].agg(['count', 'mean', 'std', 'min', 'max']).reset_index()
+            stats.columns = ['Resource Type', 'Yard', 'Resource Name', 'Count (Trips/Loads)', 'Avg (min)', 'Std Dev', 'Min (min)', 'Max (min)']
+            
+            st.dataframe(stats.style.format({
+                'Avg (min)': '{:.2f}', 'Std Dev': '{:.2f}', 'Min (min)': '{:.2f}', 'Max (min)': '{:.2f}'
+            }), use_container_width=True)
+            
+            st.subheader("📦 การกระจายตัวของเวลา (Boxplot)")
+            st.plotly_chart(px.box(df_cycle, x="Yard", y="Duration", color="Type", points="all", 
+                                   title="การกระจายตัวของรอบเวลาการทำงาน (Tractors & Loaders)"), use_container_width=True)
+        else:
+            st.info("ยังไม่มีข้อมูลรอบเวลาการทำงาน (โปรดรันการจำลองก่อน)")
 
     # --- Bar Charts with Day Tabs ---
     st.divider()

@@ -5,6 +5,13 @@ import plotly.express as px
 import numpy as np
 from datetime import time
 
+try:
+    import google.generativeai as genai
+    has_genai = True
+except ImportError:
+    has_genai = False
+
+
 # ==========================================
 # 1. SETUP & CONFIG
 # ==========================================
@@ -148,6 +155,196 @@ with st.sidebar:
     
     num_days = st.number_input("จำนวนวันที่จำลอง (วัน)", 1, 30, 1)
 
+    # --- AI ASSISTANT (CHATBOT) ---
+    st.divider()
+    with st.expander("💬 สอบถามวิธีใช้งาน (AI Assistant)", expanded=True):
+        st.caption("ผู้ช่วยอัจฉริยะ แนะนำการตั้งค่าและ Logic ระบบ")
+        
+        # 1. API Key Config
+        api_key = st.text_input("Gemini API Key", type="password", help="ใส่ Google Gemini API Key เพื่อเริ่มแชท", key="chat_api_key")
+        
+        if st.button("🗑️ ล้างประวัติแชท", use_container_width=True):
+            st.session_state.messages = [
+                {"role": "assistant", "content": "สวัสดีครับ! ผมคือผู้ช่วย KSL Sim Copilot 🚜\nสงสัยเรื่องการตั้งค่าพารามิเตอร์ หรือ Logic การทำงานของ Hub & Spoke ถามผมได้เลยครับ"}
+            ]
+            st.rerun()
+
+        # 2. Initialize Chat
+        if "messages" not in st.session_state:
+            st.session_state.messages = [
+                {"role": "assistant", "content": "สวัสดีครับ! ผมคือผู้ช่วย KSL Sim Copilot 🚜\nสงสัยเรื่องการตั้งค่าพารามิเตอร์ หรือ Logic การทำงานของ Hub & Spoke ถามผมได้เลยครับ"}
+            ]
+
+        # 3. Display Chat History
+        for msg in st.session_state.messages:
+            st.chat_message(msg["role"]).write(msg["content"])
+
+    # 4. Chat Input & Processing (ต้องอยู่นอก Expander)
+    if prompt := st.chat_input("พิมพ์คำถามที่นี่...", key="sidebar_chat_input"):
+        if not has_genai:
+            st.error("⚠️ ไม่พบ Library AI: กรุณาติดตั้งโดยพิมพ์ใน Terminal: `pip install google-generativeai`")
+        elif not api_key:
+            st.error("กรุณาใส่ API Key ในกล่องแชทด้านบนก่อนครับ")
+        else:
+            # User Message
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            
+            # AI Processing
+            try:
+                genai.configure(api_key=api_key)
+                
+                # --- ดึงข้อมูลผลการจำลองจาก Session State (ถ้ามี) ---
+                sim_result_context = ""
+                if 'ai_sim_data' in st.session_state:
+                    sim_res = st.session_state['ai_sim_data']
+                    d = sim_res['data']
+                    
+                    total_trips_ai = sum(d['trips'].values())
+                    avg_wait_ai = (d['total_fac_wait'] / d['fac_wait_count']) if d['fac_wait_count'] else 0
+                    hub_wait_hr = sum(x['Duration'] for x in d['hub_wait']) / 60
+                    
+                    sim_result_context = f"""
+                    \n**📊 ข้อมูลผลลัพธ์จากการจำลองล่าสุด (Simulation Results Data):**
+                    - **ภาพรวม**: ภาระงานรวม {d.get('total_workload',0):,.0f} ตัน | ส่งสำเร็จ {d['factory_delivered']:,.0f} ตัน | เที่ยววิ่งรวม {total_trips_ai} เที่ยว
+                    - **ประสิทธิภาพ**: รอคิวโรงงานเฉลี่ย {avg_wait_ai:.1f} นาที | รอหางที่ Hub รวม {hub_wait_hr:.1f} ชม.
+                    - **ปัญหา (Issues)**: Stuck {d.get('stuck_tons',0):,.0f} ตัน | Leftover {d.get('leftover_tons',0):,.0f} ตัน | Overtime {d.get('overtime_tons',0):,.0f} ตัน
+                    
+                    **รายละเอียดรายศูนย์ (Trips / Delivered):**
+                    """
+                    for y, t in d['trips'].items():
+                        sim_result_context += f"- {y}: {t} เที่ยว, {d['delivered_ton'][y]:,.0f} ตัน\n"
+                    sim_result_context += "---\n(ใช้ข้อมูลข้างต้นตอบคำถามเกี่ยวกับผลลัพธ์ได้ทันที)\n"
+                # -----------------------------------------------------
+                
+                # System Context (ความรู้เกี่ยวกับโปรแกรม)
+                system_instruction = f"""
+                คุณคือผู้ช่วย AI สำหรับโปรแกรม "KSL Logistics Simulation" (Hub & Spoke Model)
+                หน้าที่: อธิบายวิธีการใช้งานและ Logic ของระบบจำลองขนส่งอ้อย
+                {sim_result_context}
+
+                **1. คำแนะนำการตั้งค่า Sidebar (Sidebar Settings):**
+                - **เวลาเปิด-ปิด**: 
+                   - *ลาน (Yard)*: กำหนดช่วงเวลา inflow ของชาวไร่ (แต่รถคีบ/รถลากทำงานเก็บตกได้นอกเวลาหากมีงานค้าง)
+                   - *โรงงาน (Factory)*: กำหนดเวลาเปิดรับเท (ถ้านอกเวลา รถจะจอดรอข้ามคืน)
+                - **ช่องเทโรงงาน (Factory Slots)**: จำนวนจุดรับเทอ้อยแยก สด/ไหม้ (เป็นคอขวดสำคัญ ถ้าน้อยเกินไปคิวจะยาว)
+                - **คิวค้าง/หางค้าง (Initial Inventory)**: 
+                   - *หน้าโรงงาน*: รถที่จอดรอคิวอยู่แล้วก่อนเริ่ม Simulation
+                   - *Hub*: หางหนักที่กองรอที่ Hub (Buffer) พร้อมส่งโรงงาน
+                - **ปัจจัยแทรกซ้อน (External Factors)**: โอกาส (%) ที่จะเจอรถชาวไร่นอกระบบมาแทรกคิวหน้าโรงงาน ทำให้เสียเวลารอเพิ่ม
+                - **เวลาปฏิบัติการ (Stochastic Times)**: เวลาเท/เกี่ยว/คีบ สามารถตั้งเป็นค่าคงที่ หรือสุ่ม (Normal/Triangle) เพื่อความสมจริง
+
+                **2. คำแนะนำการตั้งค่าศูนย์และ Hub (Yard Configuration 🛠️):**
+                - **การตั้งค่าทั่วไป (General)**:
+                   - **เวลาเปิด-ปิด**: กำหนดช่วงเวลาที่ชาวไร่นำอ้อยเข้าลาน (Inflow) ส่วนรถในระบบทำงาน 24 ชม. เพื่อเคลียร์ของ
+                   - **ระยะทาง**: ระยะทางวิ่งจากลานไป Hub (หรือไปโรงงานสำหรับศูนย์โนนสัง Direct)
+                - **ทรัพยากร (Resources)**:
+                   - **รถลาก (Tractor)**: จำนวนหัวลากที่วิ่งประจำศูนย์นั้น
+                   - **หางรวม (Trailers)**: จำนวนหางพ่วงทั้งหมดที่หมุนเวียนในศูนย์นั้น (ถ้าหางไม่พอ รถคีบจะไม่มีงานทำ/รถลากจะไม่มีของลาก)
+                   - **รถคีบ (Loaders)**: มีเฉพาะที่ศูนย์ลูกข่าย (Hub ไม่มี) ทำงานคีบอ้อยจากรถชาวไร่ใส่หางพ่วง
+                - **ตั้งค่าการขึ้นอ้อย (Loading Settings 🚜)**:
+                   - **ปริมาณอ้อยบนรถลูกไร่ (Farmer Truck Load)**: น้ำหนักอ้อยเฉลี่ยต่อคันรถชาวไร่ (ตัน)
+                     *Logic*: หางพ่วง 1 ใบ (~{trailer_cap} ตัน) ต้องใช้รถชาวไร่หลายคันมาเทรวมกันจนเต็ม (เช่น รถชาวไร่ 10 ตัน ต้องใช้ 3 คัน)
+                     *ผลกระทบ*: ถ้ารถชาวไร่คันเล็ก ต้องใช้จำนวนคันมากเพื่อเติมเต็ม 1 หาง ทำให้เสียเวลาคีบนานขึ้นและรถคีบทำงานหนักขึ้น
+                   - **เวลาคีบต่อรถขนอ้อย (Loading Time)**: เวลาที่รถคีบใช้จัดการรถชาวไร่ 1 คัน (นาที)
+                     *Logic*: เป็นเวลา Service Time ต่อคันรถชาวไร่ (ไม่ใช่ต่อหางพ่วง)
+                     *ผลกระทบ*: ถ้าตั้งเวลานาน จะทำให้ระบายรถชาวไร่ไม่ทัน เกิดอ้อยค้างในไร่ (Leftover) สูง
+                - **แผนอ้อย (Cane Plan)**:
+                   - **Manual**: กรอกยอดเข้าสด/ไหม้ รายชั่วโมงด้วยตนเอง
+                   - **Auto-Generate**: ให้ระบบสุ่มยอดตามเป้าหมาย (Min/Max) และกระจายตามช่วงเวลา (Peak Time) เพื่อจำลองพฤติกรรมจริง
+                   - **Daily Random**: หากเลือก ระบบจะสุ่มยอดใหม่ทุกวันที่มีการจำลอง (Multi-day) เพื่อความหลากหลาย
+
+                **3. โครงสร้างและ Logic ของระบบ (System Overview):**
+                - **Hub & Spoke**:
+                   - **Hub ({hub_name})**: จุดพักหาง ใช้รถ **Leg B** วิ่ง Hub<->โรงงาน (Drop & Hook)
+                   - **Spoke (ลูกข่าย)**: ใช้รถ **Leg A** วิ่ง Spoke->Hub ส่งหางเต็ม และ **ต้องรอรับหางเปล่าจาก Hub** กลับมา (ถ้าหางเปล่าขาด รถจะรอที่ Hub)
+                   - **Direct (ศูนย์โนนสัง)**: วิ่งตรงเข้าโรงงาน ไม่ผ่าน Hub
+                - **ทรัพยากร**: หางพ่วง (Trailer ~{trailer_cap} ตัน) เป็นทรัพยากรหมุนเวียนที่สำคัญที่สุด, รถคีบ (Loader) ทำงาน 24 ชม.
+                
+                **4. อธิบายความหมายส่วนแสดงผล (โดยละเอียด):**
+                
+                🏆 **สรุปผลการดำเนินงาน (Executive Summary):**
+                1. **ภาระงานรวม (Total Workload)**: 
+                   - ปริมาณอ้อยทั้งหมดที่ต้องบริหารจัดการ = (แผนอ้อยเข้าใหม่ + สต็อกเก่าค้างระบบทั้งหมด)
+                2. **ส่งเข้าโรงงานสำเร็จ (Delivered)**: 
+                   - อ้อยที่ขนส่งไปถึงและเทลงรางเรียบร้อยแล้วภายในเวลาที่กำหนด
+                3. **ส่งไม่สำเร็จ (Stuck) - สำคัญ**: 
+                   - อ้อยที่ "คีบใส่หางแล้ว" แต่ยังค้างอยู่ในระบบขนส่ง (บนรถ/คิวโรงงาน/รอที่ Hub) ยังไม่ลงรางเท
+                   - *สาเหตุ*: เวลาไม่พอ, รถติดคิวโรงงานนาน, หรือการขนส่ง Hub->โรงงาน ระบายไม่ทัน
+                4. **คีบไม่หมด (Leftover) - สำคัญ**: 
+                   - อ้อยที่ยัง "กองอยู่ที่ลานหรือรอคิวคีบ" (ยังไม่ได้ถูกคีบขึ้นหาง)
+                   - *สาเหตุ*: รถคีบไม่พอ หรือ ไม่มีหางเปล่าหมุนเวียนกลับมาให้ใส่ (System Deadlock/Starvation)
+                5. **คีบหลังปิดลาน (Overtime)**: 
+                   - ยอดอ้อยที่คีบได้ในช่วงเวลานอกทำการ (กลางคืน) แสดงถึงความสามารถในการเคลียร์อ้อยค้าง
+
+                ⏱️ **ประสิทธิภาพเวลาและการใช้งาน (Efficiency Metrics):**
+                - **เวลารอคิวเท (Queue Time)**: เวลารวมและเฉลี่ยต่อคันที่ต้องจอดรอหน้าโรงงาน (ยิ่งน้อยยิ่งดี ถ้า >60 นาที แสดงว่าคอขวดที่โรงงาน)
+                - **เวลารอหางเปล่าที่ Hub (Hub Wait)**: *สำคัญ* คือเวลาที่รถลูกข่ายเสียเปล่าเพื่อรอรับหางเปล่า ถ้าสูง = ระบบขาดแคลนหางหมุนเวียน (Deadlock risk)
+                - **Utilization (%)**: สัดส่วนการทำงานจริงเทียบกับเวลาทั้งหมด
+                   - **รถคีบ**: ถ้าต่ำ อาจเพราะรถเยอะเกินความจำเป็น หรือไม่มีหางให้คีบ (Idle)
+                   - **รถลาก**: ถ้าต่ำ แสดงว่ารถว่างงานเยอะ (Over-supply)
+                   - **หางพ่วง**: วัดความถี่ในการถูกใช้งานหมุนเวียน
+
+                📈 **การแปลผลกราฟสถานะระบบ (Monitoring Analysis):**
+                - **รถขนอ้อยขาเข้า (Incoming Trucks)**: ดูช่วงเวลาที่รถเข้าเยอะ (Peak) เพื่อวางแผนรถคีบ
+                - **คิวรถรอคีบ (Queue Length)**: ถ้ากราฟพุ่งสูงค้างนาน แสดงว่ารถคีบทำงานไม่ทัน
+                - **หางว่างคงเหลือ (Empty Trailers)**: ถ้ากราฟแตะ 0 บ่อยๆ แสดงว่าระบบ "ขาดหาง" ทำให้การคีบชะงัก (Starvation)
+                - **หางหนักค้างลาน**: ถ้าสูงขึ้นเรื่อยๆ แสดงว่ารถลากลูกข่าย (Leg A) ระบายของไม่ทัน
+                - **หางหนักค้าง Hub**: ถ้ากราฟชันขึ้น แสดงว่ารถส่งโรงงาน (Leg B) ระบายออกไม่ทัน หรือติดคิวโรงงาน
+                - **คิวโรงงาน**: แสดงความหนาแน่นหน้าโรงงาน (ช่วงเช้าอาจสูงจากการรอเปิด)
+
+                ⚙️ **การวิเคราะห์รถและเที่ยววิ่ง (Fleet & Trips Analysis):**
+                - **สัดส่วนเที่ยววิ่ง**: แสดงปริมาณงานขนส่งแยกรายศูนย์ (ดูว่าศูนย์ไหนวิ่งเยอะ/น้อย เพื่อเกลี่ยทรัพยากร)
+                - **ประสิทธิภาพรถลาก (Tractor Utilization)**: กราฟแท่งแสดงสัดส่วนเวลาทำงาน (Working) เทียบกับเวลาว่าง (Idle) ของรถแต่ละคัน
+                   - *Working*: เวลาที่รถวิ่งรับ-ส่งจริง
+                   - *Idle*: เวลาที่จอดรอคิว, รอหาง, หรือไม่มีงานทำ (ถ้าสูง >50% อาจพิจารณาลดจำนวนรถ)
+                - **ประสิทธิภาพรถคีบ (Loader Utilization)**: แสดงความคุ้มค่าของการใช้รถคีบในแต่ละลาน (ถ้า % สูงมากเสี่ยงรถเสีย, ถ้าต่ำเกินไปแสดงว่ารถเยอะเกินจำเป็น)
+
+                ⏱️ **Cycle Analysis (วิเคราะห์รอบเวลา):**
+                - **ตารางสถิติ (Statistics)**: 
+                   - **Avg (min)**: เวลาเฉลี่ยที่ใช้ในการทำงาน 1 รอบ (Cycle Time) ยิ่งน้อยยิ่งดี
+                   - **Std Dev**: ค่าความเบี่ยงเบนมาตรฐาน (ถ้าสูงแสดงว่าเวลารอบแกว่งมาก ไม่เสถียร อาจเกิดจากคิวที่ไม่แน่นอน)
+                   - **Max**: เวลารอบที่นานที่สุด (Worst-case) มักเกิดในช่วง Peak หรือรถติดคิวหนัก
+                - **Boxplot (การกระจายตัว)**: 
+                   - กราฟกล่องช่วยให้เห็นช่วงเวลาทำงานส่วนใหญ่ (กล่องสี่เหลี่ยม) และค่าผิดปกติ (Outliers จุดๆ)
+                   - ถ้ารถลาก (Tractor) มี Cycle Time สูงผิดปกติ ให้เช็คคิวโรงงาน หรือคิวรอหางที่ Hub
+                   - ถ้ารถคีบ (Loader) มีเวลานาน อาจเกิดจากรอรถชาวไร่ หรือประสิทธิภาพการคีบ
+
+                ตอบคำถามโดยวิเคราะห์ตาม Logic นี้เท่านั้น
+                """
+                
+                with st.spinner("..."):
+                    # เทคนิค: ดึงรายชื่อโมเดลที่ใช้งานได้จริงจาก API ของ User (Auto-Discovery)
+                    try:
+                        # ดึงโมเดลที่รองรับ generateContent
+                        available = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                        # จัดลำดับความสำคัญ: Flash (เร็ว) -> Pro (ฉลาด) -> อื่นๆ
+                        candidate_models = sorted(available, key=lambda x: 0 if 'flash' in x else (1 if 'pro' in x else 2))
+                    except:
+                        # Fallback ถ้าดึง List ไม่ได้ (กรณี Key มีปัญหาหรือ Net หลุด)
+                        candidate_models = ["models/gemini-1.5-flash", "gemini-1.5-flash", "models/gemini-pro", "gemini-pro"]
+
+                    response = None
+                    last_error = None
+                    
+                    for model_name in candidate_models:
+                        try:
+                            model = genai.GenerativeModel(model_name)
+                            response = model.generate_content(f"{system_instruction}\n\nUser Question: {prompt}")
+                            break # ถ้าสำเร็จ ให้หยุดลอง
+                        except Exception as e:
+                            last_error = e
+                            continue # ถ้าไม่สำเร็จ ให้ลองตัวถัดไป
+
+                    if response:
+                        ai_reply = response.text
+                        st.session_state.messages.append({"role": "assistant", "content": ai_reply})
+                        st.rerun()
+                    else:
+                        st.error(f"❌ ไม่สามารถเชื่อมต่อกับ AI ได้ (ลองทั้งหมด {len(candidate_models)} โมเดล). Error ล่าสุด: {last_error}")
+                    
+            except Exception as e:
+                st.error(f"เกิดข้อผิดพลาด: {e}")
+
 # Calculate simulation time
 sim_duration = 1440 * num_days
 start_min = 0 # 24H Simulation starts at 00:00
@@ -179,6 +376,8 @@ for i, (y_name, tab) in enumerate(zip(yards_list, yard_tabs)):
             if y_name != hub_name:
                 y_end = st.time_input(f"เวลาปิด ({y_name})", time(18, 0), key=f"yed_{y_name}")
                 end_m_val = y_end.hour * 60 + y_end.minute
+                # Fix: ถ้าเลือก 23:59 ให้ปัดเป็น 1440 (ครบ 24 ชม. เต็ม) เพื่อไม่ให้หยุดทำงาน 1 นาทีตอนเที่ยงคืน
+                if end_m_val == 1439: end_m_val = 1440
             else:
                 pass # Hub handled above
 
@@ -350,7 +549,7 @@ def run_ksl_simulation():
     
     kpi = {"delivered_ton": {y: 0.0 for y in yards_list}, "trips": {y: 0 for y in yards_list}, "history": [], "hourly_load": [], "loading_events": [], "incoming_cane": [], "hub_wait": [], "ext_wait": [], "total_dist_head": 0.0, "total_dist_tail": 0.0, "factory_delivered": 0.0,
            "total_fac_wait": 0.0, "fac_wait_count": 0, "trailer_util_sum": 0.0, "monitor_count": 0, "total_trailers": sum(fleet_config[y]['n_e'] for y in yards_list),
-           "incoming_trucks": [], "queue_len": [], "cycle_logs": []}
+           "incoming_trucks": [], "queue_len": [], "cycle_logs": [], "overtime_tons": 0.0}
     fac_q_monitor = {"สด": 0, "ไหม้": 0}
     t_util, l_util = {}, {}
 
@@ -443,6 +642,15 @@ def run_ksl_simulation():
                         space = trailer_cap - active_t['load']
                         amount_to_fill = min(space, truck_load)
                         active_t['load'] += amount_to_fill
+                        
+                        # --- เช็คการคีบหลังปิดลาน (Overtime) ---
+                        tod_now = env.now % 1440
+                        is_open_now = False
+                        if y_end_min > y_start_min: is_open_now = (y_start_min <= tod_now < y_end_min)
+                        else: is_open_now = (tod_now >= y_start_min or tod_now < y_end_min)
+                        if not is_open_now: kpi['overtime_tons'] += amount_to_fill
+                        # ------------------------------------
+                        
                         kpi["delivered_ton"][y_name] += amount_to_fill
                         kpi['loading_events'].append({'time_min': env.now, 'yard': y_name, 'tons': amount_to_fill})
                         
@@ -547,19 +755,7 @@ def run_ksl_simulation():
         while env.now < sim_duration:
             tod = env.now % 1440
             
-            # Logic: ทำงานต่อถ้ามีหางหนักค้าง (Overtime / 24h if busy)
-            has_job = (len(final_y[y_name]['full_f'].items) > 0 or len(final_y[y_name]['full_b'].items) > 0)
-            
-            is_open = False
-            if y_end_min > y_start_min: is_open = (y_start_min <= tod < y_end_min)
-            else: is_open = (tod >= y_start_min or tod < y_end_min) # กรณีตั้งเวลาข้ามวัน
-
-            if not is_open and not has_job:
-                if tod < y_start_min:
-                    yield env.timeout(y_start_min - tod)
-                else: # tod >= y_end_min
-                    yield env.timeout(1440 - tod + y_start_min)
-                continue
+            # รถลากทำงาน 24 ชม. (Polling รองานทุก 5 นาทีถ้าไม่มีงาน)
 
             t_type = 'f' if len(final_y[y_name]['full_f'].items) > 0 else ('b' if len(final_y[y_name]['full_b'].items) > 0 else None)
             if t_type:
@@ -595,19 +791,7 @@ def run_ksl_simulation():
         while env.now < sim_duration:
             tod = env.now % 1440
             
-            # Logic: ทำงานต่อถ้ามีหางหนักค้าง (Overtime / 24h if busy)
-            has_job = (len(final_y[y_name]['full_f'].items) > 0 or len(final_y[y_name]['full_b'].items) > 0)
-            
-            is_open = False
-            if y_end_min > y_start_min: is_open = (y_start_min <= tod < y_end_min)
-            else: is_open = (tod >= y_start_min or tod < y_end_min)
-
-            if not is_open and not has_job:
-                if tod < y_start_min:
-                    yield env.timeout(y_start_min - tod)
-                else: # tod >= y_end_min
-                    yield env.timeout(1440 - tod + y_start_min)
-                continue
+            # รถลาก Direct ทำงาน 24 ชม.
 
             # Check full trailers at yard
             t_type = 'f' if len(final_y[y_name]['full_f'].items) > 0 else ('b' if len(final_y[y_name]['full_b'].items) > 0 else None)
@@ -827,8 +1011,17 @@ def run_ksl_simulation():
 # ==========================================
 # 5. EXECUTION & RESULTS
 # ==========================================
+if 'sim_results' not in st.session_state:
+    st.session_state['sim_results'] = None
+
 if st.button("🚀 รันการจำลองระบบ", use_container_width=True, type="primary"):
-    data, final_y, t_utils, l_utils, total_time = run_ksl_simulation()
+    with st.spinner("🔄 กำลังประมวลผล..."):
+        data, final_y, t_utils, l_utils, total_time = run_ksl_simulation()
+        st.session_state['sim_results'] = {'data': data, 't_utils': t_utils, 'l_utils': l_utils, 'total_time': total_time}
+
+if st.session_state['sim_results']:
+    results = st.session_state['sim_results']
+    data, t_utils, l_utils, total_time = results['data'], results['t_utils'], results['l_utils'], results['total_time']
     df_h = pd.DataFrame(data['history'])
     
     # --- SUMMARY METRICS CALCULATION ---
@@ -850,6 +1043,10 @@ if st.button("🚀 รันการจำลองระบบ", use_container
     # 1. Workload = Plan + Stock
     total_workload = total_plan + total_init_inv
     
+    # --- Save Data for AI Context ---
+    data['total_workload'] = total_workload
+    st.session_state['ai_sim_data'] = {'data': data}
+    
     # 3. ส่งไม่สำเร็จ (Stuck)
     not_delivered = data['stuck_tons']
     
@@ -859,11 +1056,12 @@ if st.button("🚀 รันการจำลองระบบ", use_container
     st.markdown("### 🏆 สรุปผลการดำเนินงาน (Executive Summary)")
     
     # Row 1: Cargo Metrics
-    mc1, mc2, mc3, mc4 = st.columns(4)
-    mc1.metric("1. ภาระงานรวม (Total)", f"{total_workload:,.0f} ตัน", help="สูตร: แผนอ้อยใหม่ตลอดช่วงเวลา + สต็อกเก่าค้างลาน/Hub/โรงงาน")
-    mc2.metric("2. ส่งเข้าโรงงานสำเร็จ", f"{total_delivered:,.0f} ตัน", help="สูตร: อ้อยที่ผ่านกระบวนการเทลงรางและรถออกจากโรงงานเรียบร้อยแล้ว")
-    mc3.metric("3. ส่งไม่สำเร็จ (Stuck)", f"{not_delivered:,.0f} ตัน", help="สูตร: หางหนักที่เต็มแล้วแต่ยังส่งไม่ถึงรางเท (ค้างที่ลาน/Hub/บนรถขนส่ง/คิวโรงงาน)")
-    mc4.metric("4. คีบไม่หมด (Leftover)", f"{not_loaded:,.0f} ตัน", help="สูตร: อ้อยที่ยังค้างอยู่ในคิวรถเกษตรกร (ยังไม่ได้ถูกคีบ)")
+    mc1, mc2, mc3, mc4, mc5 = st.columns(5)
+    mc1.metric("1. ภาระงานรวม", f"{total_workload:,.0f} ตัน", help="แผนอ้อยใหม่ + สต็อกเก่า")
+    mc2.metric("2. ส่งโรงงานสำเร็จ", f"{total_delivered:,.0f} ตัน")
+    mc3.metric("3. ส่งไม่สำเร็จ (Stuck)", f"{not_delivered:,.0f} ตัน", help="ค้างบนรถ/ค้าง Hub/รอคิว")
+    mc4.metric("4. คีบไม่หมด (Leftover)", f"{not_loaded:,.0f} ตัน", help="ค้างในไร่/ลาน (คีบไม่ทัน)")
+    mc5.metric("🌙 คีบหลังปิดลาน (Overtime)", f"{data['overtime_tons']:,.0f} ตัน", help="ปริมาณอ้อยที่รถคีบทำงานนอกเวลาเปิดรับ (แสดงถึงการเคลียร์ของ)")
     
     # Row 2: Distance & Trips (Moved to Top)
     d1, d2, d3 = st.columns(3)
